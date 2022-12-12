@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>ThreeJS FPS</title>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0"
+    />
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+      }
+
+      body {
+        background-color: #ffffff;
+        margin: 0;
+        overflow: hidden;
+        font-family: arial;
+      }
+
+      #blocker {
+        position: absolute;
+
+        width: 100%;
+        height: 100%;
+
+        background-color: rgba(0, 0, 0, 0.5);
+      }
+
+      #instructions {
+        width: 100%;
+        height: 100%;
+
+        display: -webkit-box;
+        display: -moz-box;
+        display: box;
+
+        -webkit-box-orient: horizontal;
+        -moz-box-orient: horizontal;
+        box-orient: horizontal;
+
+        -webkit-box-pack: center;
+        -moz-box-pack: center;
+        box-pack: center;
+
+        -webkit-box-align: center;
+        -moz-box-align: center;
+        box-align: center;
+
+        color: #ffffff;
+        text-align: center;
+
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="blocker">
+      <div id="instructions">
+        <span style="font-size: 40px">Click to play</span>
+        <br />
+        (W, A, S, D = Move, MOUSE = Look around)
+        <br />
+      </div>
+    </div>
+    <script src="js/three.js"></script>
+    <script src="js/controls/PointerLockControls.js"></script>
+    <script src="js/GLTFLoader.js"></script>
+    <script>
+      //To Do: Generate projectiles
+      var camera, scene, renderer, controls;
+      var objects = [];
+
+      var raycaster;
+
+      var blocker = document.getElementById("blocker");
+      var instructions = document.getElementById("instructions");
+
+      var havePointerLock =
+        "pointerLockElement" in document ||
+        "mozPointerLockElement" in document ||
+        "webkitPointerLockElement" in document;
+
+      if (havePointerLock) {
+        var element = document.body;
+
+        var pointerlockchange = function (event) {
+          if (
+            document.pointerLockElement === element ||
+            document.mozPointerLockElement === element ||
+            document.webkitPointerLockElement === element
+          ) {
+            controlsEnabled = true;
+            controls.enabled = true;
+
+            blocker.style.display = "none";
+          } else {
+            controls.enabled = false;
+
+            blocker.style.display = "block";
+
+            instructions.style.display = "";
+          }
+        };
+
+        var pointerlockerror = function (event) {
+          instructions.style.display = "";
+        };
+
+        // Hook pointer lock state change events
+        document.addEventListener(
+          "pointerlockchange",
+          pointerlockchange,
+          false
+        );
+        document.addEventListener(
+          "mozpointerlockchange",
+          pointerlockchange,
+          false
+        );
+        document.addEventListener(
+          "webkitpointerlockchange",
+          pointerlockchange,
+          false
+        );
+
+        document.addEventListener("pointerlockerror", pointerlockerror, false);
+        document.addEventListener(
+          "mozpointerlockerror",
+          pointerlockerror,
+          false
+        );
+        document.addEventListener(
+          "webkitpointerlockerror",
+          pointerlockerror,
+          false
+        );
+
+        instructions.addEventListener(
+          "click",
+          function (event) {
+            canShoot = true;
+            // Ask the browser to lock the pointer
+            element.requestPointerLock =
+              element.requestPointerLock ||
+              element.mozRequestPointerLock ||
+              element.webkitRequestPointerLock;
+            element.requestPointerLock();
+          },
+          false
+        );
+      } else {
+        instructions.innerHTML =
+          "Your browser doesn't seem to support Pointer Lock API";
+      }
+
+      var controlsEnabled = false;
+
+      var moveForward = false;
+      var moveBackward = false;
+      var moveLeft = false;
+      var moveRight = false;
+
+      var prevTime = performance.now();
+      var velocity = new THREE.Vector3();
+      var direction = new THREE.Vector3();
+      var vertex = new THREE.Vector3();
+      var color = new THREE.Color();
+      let distanceTravelled = 0;
+
+      camera = new THREE.PerspectiveCamera(
+        75,
+        window.innerWidth / window.innerHeight,
+        1,
+        1000
+      );
+      scene = new THREE.Scene();
+      let game_color = 0x000000;
+      scene.background = new THREE.Color(0x808080);
+      scene.fog = new THREE.Fog(game_color, 0, 150);
+
+      let light = new THREE.HemisphereLight(0xeeeeff, 0x777788, 0.75);
+      light.position.set(0.5, 1, 0.75);
+      scene.add(light);
+      light.intensity = 5;
+
+      controls = new THREE.PointerLockControls(camera);
+      scene.add(controls.getObject());
+
+      let onKeyDown = (event) => {
+        switch (event.keyCode) {
+          case 38: // up
+          case 87: // w
+            moveForward = true;
+            break;
+
+          case 37: // left
+          case 65: // a
+            moveLeft = true;
+            break;
+
+          case 40: // down
+          case 83: // s
+            moveBackward = true;
+            break;
+
+          case 39: // right
+          case 68: // d
+            moveRight = true;
+            break;
+        }
+      };
+
+      let onKeyUp = (event) => {
+        switch (event.keyCode) {
+          case 38: // up
+          case 87: // w
+            moveForward = false;
+            break;
+
+          case 37: // left
+          case 65: // a
+            moveLeft = false;
+            break;
+
+          case 40: // down
+          case 83: // s
+            moveBackward = false;
+            break;
+
+          case 39: // right
+          case 68: // d
+            moveRight = false;
+            break;
+        }
+      };
+
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+   
+      let mx5 = new THREE.GLTFLoader();
+      mx5.load(
+        "assets/mx5newanim2.gltf",
+        (gltf) =>{
+          gltf.scene.scale.x = 6;
+          gltf.scene.scale.y = 6;
+          gltf.scene.scale.z = 6;
+          scene.add(gltf.scene);
+        }
+      )
+
+      let proximityRayCaster = new THREE.Raycaster();
+
+      function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+
+      window.addEventListener("resize", onWindowResize, false);
+      var timer = null;
+      document.addEventListener(
+        "mousedown",
+        function (event) {
+          event.preventDefault();
+        },
+        false
+      );
+
+      document.addEventListener(
+        "mouseup",
+        function (event) {
+          clearInterval(timer);
+        },
+        false
+      );
+
+      document.addEventListener("keydown", onKeyDown, false);
+      document.addEventListener("keyup", onKeyUp, false);
+
+      function getSceneMesh(scene) {
+        let sceneMesh = scene.children.filter((child) => {
+          if (child.name.includes("Scene")) {
+            return child;
+          }
+        });
+        return sceneMesh[0].children;
+      }
+
+      function animate() {
+        requestAnimationFrame(animate);
+
+        if (controlsEnabled === true) {
+          let playerPosition = controls.getObject().position;
+
+          var time = performance.now();
+          var delta = ((time - prevTime) / 1000) * 2;
+
+          velocity.x -= velocity.x * 10.0 * delta;
+          velocity.z -= velocity.z * 10.0 * delta;
+
+          velocity.y -= 9.8 * 500.0 * delta; // 100.0 = mass
+
+          direction.z = Number(moveForward) - Number(moveBackward);
+          direction.x = Number(moveLeft) - Number(moveRight);
+          direction.normalize(); // this ensures consistent movements in all directions
+
+          if (moveForward || moveBackward) {
+            velocity.z -= direction.z * 400.0 * delta;
+          }
+
+          if (moveLeft || moveRight) {
+            velocity.x -= direction.x * 400.0 * delta;
+          }
+
+          if (moveForward || moveBackward || moveLeft || moveRight) {
+            let scaleGunOscillation = 0;
+            let scaleHeadOscillation = 200;
+            let oscillationSpeed = 0;
+            distanceTravelled += oscillationSpeed * delta;
+            camera.position.y +=
+              Math.sin(distanceTravelled) / scaleHeadOscillation;
+          }
+
+          proximityRayCaster.ray.origin.set(
+            playerPosition.x,
+            playerPosition.y,
+            playerPosition.z
+          );
+
+
+          controls.getObject().translateX(velocity.x * delta);
+          controls.getObject().translateY(velocity.y * delta);
+          controls.getObject().translateZ(velocity.z * delta);
+
+         
+
+          
+
+         
+
+          if (controls.getObject().position.y < 10) {
+            controls.getObject().position.y = 10;
+          }
+
+          prevTime = time;
+        }
+
+        renderer.render(scene, camera);
+      }
+
+      animate();
+    </script>
+  </body>
+</html>
